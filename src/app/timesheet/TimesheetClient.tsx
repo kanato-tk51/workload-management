@@ -79,6 +79,7 @@ export default function TimesheetClient({
       if (userId) {
         params.set("userId", userId);
       }
+      setScrollLeft(0);
       setLoading(true);
       setMessage(null);
       setInvalidWarning(false);
