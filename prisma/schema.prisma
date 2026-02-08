@@ -2,7 +2,6 @@
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -28,6 +27,8 @@ model User {
   sessions    Session[]
   holidays    HolidayPersonal[]
   timeEntries TimeEntry[]
+
+  @@map("users")
 }
 
 model Account {
@@ -47,6 +48,7 @@ model Account {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+  @@map("accounts")
 }
 
 model Session {
@@ -56,6 +58,8 @@ model Session {
   expires      DateTime
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
 }
 
 model VerificationToken {
@@ -64,18 +68,23 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+  @@map("verification_tokens")
 }
 
 model AdminEmail {
   email     String   @id
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("admin_emails")
 }
 
 model AllowedDomain {
   domain    String   @id
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("allowed_domains")
 }
 
 model Unit {
@@ -87,6 +96,8 @@ model Unit {
 
   users        User[]
   unitProjects UnitProject[]
+
+  @@map("units")
 }
 
 model Project {
@@ -99,6 +110,8 @@ model Project {
 
   items        ProjectItem[]
   unitProjects UnitProject[]
+
+  @@map("projects")
 }
 
 model ProjectItem {
@@ -113,6 +126,8 @@ model ProjectItem {
 
   project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   timeEntries TimeEntry[]
+
+  @@map("project_items")
 }
 
 model UnitProject {
@@ -123,6 +138,7 @@ model UnitProject {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@id([unitId, projectId])
+  @@map("unit_projects")
 }
 
 model TimeEntry {
@@ -139,6 +155,7 @@ model TimeEntry {
 
   @@unique([userId, date, projectItemId])
   @@index([date])
+  @@map("time_entries")
 }
 
 model HolidayCompany {
@@ -147,6 +164,8 @@ model HolidayCompany {
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("holidays_company")
 }
 
 model HolidayPersonal {
@@ -160,6 +179,7 @@ model HolidayPersonal {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date])
+  @@map("holidays_personal")
 }
 
 model Setting {
@@ -167,4 +187,6 @@ model Setting {
   value     String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("settings")
 }

@@ -4,7 +4,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Workload Management",
-  description: "社員の工数を管理するアプリ"
+  description: "社員の工数を管理するアプリ",
+  icons: [{ rel: "icon", url: "/icon.svg" }]
 };
 
 export default function RootLayout({

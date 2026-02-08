@@ -3,14 +3,15 @@
 ## 基盤
 - [x] Next.js(App Router) + TypeScript 初期化
 - [x] Tailwind CSS セットアップ
-- [ ] npm install（依存取得）
-- [ ] Prisma + PostgreSQL(Neon) セットアップ
+- [x] npm install（依存取得）
+- [x] Tailwind PostCSSプラグイン有効化（@tailwindcss/postcss）
+- [x] Prisma + PostgreSQL(Neon) セットアップ
 - [x] Auth.js(NextAuth v5) + Google OAuth 実装
 - [x] 管理者/許可ドメインの認可ロジック実装
 
 ## データモデル
 - [x] Prismaスキーマ作成（users/units/projects/project_items(type含む)/holidays/settings…）
-- [ ] 初期マイグレーション
+- [x] 初期マイグレーション
 
 ## 社員向け
 - [ ] 月次工数表UI（スプレッドシート風）
