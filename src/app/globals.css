@@ -2,6 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
+details[data-details="admin-unit"] > summary::-webkit-details-marker {
+  display: none;
+}
+
+details[data-details="admin-unit"] > summary::marker {
+  display: none;
+}
+
+details[data-details="admin-unit"] .details-open {
+  display: none;
+}
+
+details[data-details="admin-unit"][open] .details-open {
+  display: inline;
+}
+
+details[data-details="admin-unit"][open] .details-closed {
+  display: none;
+}
+
+details[data-details="admin-project"] > summary::-webkit-details-marker {
+  display: none;
+}
+
+details[data-details="admin-project"] > summary::marker {
+  display: none;
+}
+
 :root {
   color-scheme: light;
 }
@@ -15,4 +43,29 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   background: #f7f7fb;
   color: #111827;
+}
+
+.timesheet-grid {
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+  contain: none !important;
+  --rdg-border-color: #e2e8f0;
+  --rdg-border-width: 1px;
+}
+
+.timesheet-header-row > * {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background-color: var(--rdg-header-background-color);
+}
+
+.timesheet-grid [role="gridcell"],
+.timesheet-grid [role="columnheader"] {
+  border-inline-end: 1px solid #e2e8f0;
+  border-block-end: 1px solid #e2e8f0;
+}
+
+.timesheet-grid .timesheet-project-divider [role="gridcell"] {
+  border-block-start: 2px solid #000000;
 }

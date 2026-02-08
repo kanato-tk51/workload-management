@@ -10,25 +10,27 @@
   },
   "dependencies": {
     "@auth/prisma-adapter": "latest",
+    "@prisma/adapter-pg": "latest",
     "@prisma/client": "latest",
     "googleapis": "latest",
     "next": "latest",
     "next-auth": "latest",
+    "pg": "latest",
     "react": "latest",
-    "react-dom": "latest",
-    "react-data-grid": "latest"
+    "react-data-grid": "latest",
+    "react-dom": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
+    "@types/pg": "^8.16.0",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "autoprefixer": "latest",
-    "@tailwindcss/postcss": "latest",
     "eslint": "latest",
     "eslint-config-next": "latest",
     "postcss": "latest",
     "prisma": "latest",
-    "tailwindcss": "latest",
+    "tailwindcss": "^3.4.17",
     "typescript": "latest"
   }
 }
