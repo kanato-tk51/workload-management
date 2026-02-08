@@ -229,17 +229,20 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
 
   const headerCells = useMemo(() => {
     return columns.map((column) => {
-      const content = column.renderHeaderCell
-        ? column.renderHeaderCell({
+      const renderHeader =
+        "renderHeaderCell" in column ? column.renderHeaderCell : undefined;
+      const content = renderHeader
+        ? renderHeader({
             column,
             sortDirection: undefined,
             priority: undefined
-          } as unknown as Parameters<NonNullable<typeof column.renderHeaderCell>>[0])
+          } as unknown as Parameters<NonNullable<typeof renderHeader>>[0])
         : column.name;
+      const isFrozen = "frozen" in column ? Boolean(column.frozen) : false;
       return {
         key: String(column.key),
         width: typeof column.width === "number" ? column.width : 100,
-        frozen: Boolean(column.frozen),
+        frozen: isFrozen,
         content
       };
     });
