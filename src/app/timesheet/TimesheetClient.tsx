@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DataGrid, renderTextEditor, type Column } from "react-data-grid";
 import "react-data-grid/lib/styles.css";
 
@@ -67,6 +67,11 @@ export default function TimesheetClient({
   const [invalidWarning, setInvalidWarning] = useState(false);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [selectedHolidays, setSelectedHolidays] = useState<Set<string>>(new Set());
+  const dragFillRef = useRef<{
+    rowId: string;
+    startDay: number;
+    value: string;
+  } | null>(null);
 
   const fetchMonth = useCallback(
     async (value: string) => {
@@ -245,6 +250,90 @@ export default function TimesheetClient({
   const hasUnsaved = isDirty || holidayDirty;
   const canSave = hasUnsaved && !saving && !loading;
 
+  const updateDraft = useCallback(
+    (date: string, entries: Record<string, number>, shouldClear: boolean) => {
+      if (readOnly || typeof window === "undefined") return;
+      const current = loadDrafts();
+      if (shouldClear) {
+        delete current[date];
+      } else {
+        current[date] = entries;
+      }
+      localStorage.setItem(draftKey, JSON.stringify(current));
+    },
+    [draftKey, loadDrafts, readOnly]
+  );
+
+  const syncDraftForDay = useCallback(
+    (day: number, nextRows: Row[]) => {
+      if (readOnly) return;
+      const key = `d${day}`;
+      const date = `${month}-${day.toString().padStart(2, "0")}`;
+      const entries: Record<string, number> = {};
+      let total = 0;
+      nextRows.forEach((row) => {
+        const value = Number(row[key] || 0);
+        if (value > 0) {
+          entries[row.id] = value;
+          total += value;
+        }
+      });
+      total = Math.round(total * 10) / 10;
+      if (total === 0) {
+        updateDraft(date, entries, true);
+      } else {
+        updateDraft(date, entries, false);
+      }
+    },
+    [month, readOnly, updateDraft]
+  );
+
+  const applyDragFill = useCallback(
+    (rowId: string, startDay: number, endDay: number, value: string) => {
+      if (readOnly) return;
+      const minDay = Math.min(startDay, endDay);
+      const maxDay = Math.max(startDay, endDay);
+      const nextRows = rows.map((row) => {
+        if (row.id !== rowId) return row;
+        const updated = { ...row };
+        for (let day = minDay; day <= maxDay; day += 1) {
+          updated[`d${day}`] = value;
+        }
+        return updated;
+      });
+      setRows(nextRows);
+      for (let day = minDay; day <= maxDay; day += 1) {
+        syncDraftForDay(day, nextRows);
+      }
+    },
+    [readOnly, rows, syncDraftForDay]
+  );
+
+  const startDragFill = useCallback((rowId: string, day: number, value: string) => {
+    dragFillRef.current = { rowId, startDay: day, value };
+  }, []);
+
+  const handleDragEnter = useCallback(
+    (rowId: string, day: number) => {
+      const current = dragFillRef.current;
+      if (!current) return;
+      if (current.rowId !== rowId) return;
+      if (current.startDay === day) return;
+      applyDragFill(rowId, current.startDay, day, current.value);
+    },
+    [applyDragFill]
+  );
+
+  useEffect(() => {
+    const stopDrag = () => {
+      dragFillRef.current = null;
+    };
+    window.addEventListener("mouseup", stopDrag);
+    return () => {
+      window.removeEventListener("mouseup", stopDrag);
+    };
+  }, []);
+
   const columns = useMemo(() => {
     if (!data) return [] as Column<Row>[];
     const [year, monthValue] = data.month.split("-").map(Number);
@@ -271,6 +360,30 @@ export default function TimesheetClient({
         headerClass: headerClass || undefined,
         cellClass: isIncomplete ? "bg-rose-50" : undefined,
         renderEditCell: readOnly ? undefined : renderTextEditor,
+        renderCell({ row }) {
+          const value = row[key] ?? "";
+          return (
+            <div
+              className="h-full w-full"
+              onMouseDown={(event) => {
+                if (readOnly) return;
+                if (event.button !== 0) return;
+                const nextValue = sanitizeInput(row[key]);
+                startDragFill(row.id, day, nextValue);
+              }}
+              onMouseEnter={(event) => {
+                if (readOnly) return;
+                if (event.buttons !== 1) return;
+                handleDragEnter(row.id, day);
+              }}
+              onMouseUp={() => {
+                dragFillRef.current = null;
+              }}
+            >
+              {value}
+            </div>
+          );
+        },
         renderHeaderCell() {
           const total = dayTotals[key] ?? 0;
           const needs = total === 100 ? "" : "*";
@@ -310,7 +423,14 @@ export default function TimesheetClient({
         }
       }
     ];
-  }, [data, dayTotals, holidays, readOnly]);
+  }, [
+    data,
+    dayTotals,
+    handleDragEnter,
+    holidays,
+    readOnly,
+    startDragFill
+  ]);
 
   const baseRowHeight = 40;
   const extraLineHeight = 16;
@@ -432,20 +552,6 @@ export default function TimesheetClient({
       });
     },
     [baseHolidays, readOnly]
-  );
-
-  const updateDraft = useCallback(
-    (date: string, entries: Record<string, number>, shouldClear: boolean) => {
-      if (readOnly || typeof window === "undefined") return;
-      const current = loadDrafts();
-      if (shouldClear) {
-        delete current[date];
-      } else {
-        current[date] = entries;
-      }
-      localStorage.setItem(draftKey, JSON.stringify(current));
-    },
-    [draftKey, loadDrafts, readOnly]
   );
 
   const clearDrafts = useCallback(() => {

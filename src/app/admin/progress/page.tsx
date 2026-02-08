@@ -134,7 +134,7 @@ export default async function AdminProgressPage({
           <AdminProgressMonthSelect month={month} />
         </div>
         <div className="mt-4 text-sm text-slate-600">
-          完了 {completed.length}人 / 未完了 {incomplete.length}人
+          社員数 {statuses.length}人 / 完了 {completed.length}人 / 未完了 {incomplete.length}人
         </div>
       </div>
 
