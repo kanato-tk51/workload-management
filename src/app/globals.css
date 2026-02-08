@@ -51,6 +51,7 @@ body {
   contain: none !important;
   --rdg-border-color: #e2e8f0;
   --rdg-border-width: 1px;
+  font-size: 0.8rem;
 }
 
 .timesheet-header-row > * {
@@ -64,6 +65,12 @@ body {
 .timesheet-grid [role="columnheader"] {
   border-inline-end: 1px solid #e2e8f0;
   border-block-end: 1px solid #e2e8f0;
+}
+
+.timesheet-grid [role="gridcell"] {
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.25;
 }
 
 .timesheet-grid .timesheet-project-divider [role="gridcell"] {

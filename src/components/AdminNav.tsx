@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { href: "/admin", label: "まとめ" },
   { href: "/admin/domains", label: "許可ドメイン" },
   { href: "/admin/users", label: "社員管理" },
+  { href: "/admin/progress", label: "入力状況" },
   { href: "/admin/units", label: "ユニット" },
   { href: "/admin/projects", label: "プロジェクト/開発項目" }
 ];

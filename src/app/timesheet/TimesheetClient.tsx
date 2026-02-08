@@ -25,6 +25,7 @@ type MonthResponse = {
   items: Item[];
   entries: Entry[];
   holidays: string[];
+  personalHolidays: string[];
 };
 
 type Row = {
@@ -46,7 +47,17 @@ function sanitizeInput(value: unknown) {
   return clamped === 0 ? "" : clamped.toString();
 }
 
-export default function TimesheetClient({ initialMonth }: { initialMonth: string }) {
+export default function TimesheetClient({
+  initialMonth,
+  readOnly = false,
+  dataEndpoint = "/api/month",
+  userId
+}: {
+  initialMonth: string;
+  readOnly?: boolean;
+  dataEndpoint?: string;
+  userId?: string;
+}) {
   const [month, setMonth] = useState(initialMonth);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<MonthResponse | null>(null);
@@ -55,30 +66,47 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
   const [message, setMessage] = useState<string | null>(null);
   const [invalidWarning, setInvalidWarning] = useState(false);
   const [scrollLeft, setScrollLeft] = useState(0);
+  const [selectedHolidays, setSelectedHolidays] = useState<Set<string>>(new Set());
 
-  const fetchMonth = useCallback(async (value: string) => {
-    setLoading(true);
-    setMessage(null);
-    setInvalidWarning(false);
-    const res = await fetch(`/api/month?month=${value}`, { cache: "no-store" });
-    if (!res.ok) {
-      setMessage("データ取得に失敗しました。");
+  const fetchMonth = useCallback(
+    async (value: string) => {
+      const params = new URLSearchParams({ month: value });
+      if (userId) {
+        params.set("userId", userId);
+      }
+      setLoading(true);
+      setMessage(null);
+      setInvalidWarning(false);
+      const res = await fetch(`${dataEndpoint}?${params.toString()}`, {
+        cache: "no-store"
+      });
+      if (!res.ok) {
+        setMessage("データ取得に失敗しました。");
+        setLoading(false);
+        return;
+      }
+      const json: MonthResponse = await res.json();
+      setData(json);
       setLoading(false);
-      return;
-    }
-    const json: MonthResponse = await res.json();
-    setData(json);
-    setLoading(false);
-  }, []);
+    },
+    [dataEndpoint, userId]
+  );
 
   useEffect(() => {
     fetchMonth(month);
   }, [fetchMonth, month]);
 
+  useEffect(() => {
+    if (!data) return;
+    setSelectedHolidays(new Set(data.personalHolidays));
+  }, [data]);
+
   const draftKey = `${DRAFT_KEY_PREFIX}${month}`;
 
   const loadDrafts = useCallback(() => {
-    if (typeof window === "undefined") return {} as Record<string, Record<string, number>>;
+    if (readOnly || typeof window === "undefined") {
+      return {} as Record<string, Record<string, number>>;
+    }
     const raw = localStorage.getItem(draftKey);
     if (!raw) return {};
     try {
@@ -86,7 +114,7 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
     } catch {
       return {};
     }
-  }, [draftKey]);
+  }, [draftKey, readOnly]);
 
   useEffect(() => {
     if (!data) return;
@@ -135,9 +163,68 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
     return totals;
   }, [data, rows]);
 
-  const holidays = useMemo(() => new Set(data?.holidays ?? []), [data?.holidays]);
+  const baseHolidays = useMemo(() => new Set(data?.holidays ?? []), [data?.holidays]);
+  const holidays = useMemo(() => {
+    const base = new Set(baseHolidays);
+    selectedHolidays.forEach((date) => base.add(date));
+    return base;
+  }, [baseHolidays, selectedHolidays]);
+
+  const holidayDirty = useMemo(() => {
+    if (!data) return false;
+    const current = selectedHolidays;
+    const initial = new Set(data.personalHolidays);
+    if (current.size !== initial.size) return true;
+    for (const date of current) {
+      if (!initial.has(date)) return true;
+    }
+    return false;
+  }, [data, selectedHolidays]);
+
+  const incompleteDays = useMemo(() => {
+    if (!data) return [] as number[];
+    const result: number[] = [];
+    for (let day = 1; day <= data.days; day += 1) {
+      const key = `d${day}`;
+      const date = `${data.month}-${day.toString().padStart(2, "0")}`;
+      let total = 0;
+      rows.forEach((row) => {
+        total += Number(row[key] || 0);
+      });
+      total = Math.round(total * 10) / 10;
+      const isHoliday = holidays.has(date);
+      const isComplete = isHoliday ? total === 0 || total === 100 : total === 100;
+      if (!isComplete) {
+        result.push(day);
+      }
+    }
+    return result;
+  }, [data, holidays, rows]);
+
+  const incompleteSet = useMemo(() => new Set(incompleteDays), [incompleteDays]);
+
+  const calendar = useMemo(() => {
+    if (!data) return { weeks: [] as Array<Array<number | null>> };
+    const [year, monthValue] = data.month.split("-").map(Number);
+    const firstDow = new Date(Date.UTC(year, monthValue - 1, 1)).getUTCDay();
+    const weeks: Array<Array<number | null>> = [];
+    let week: Array<number | null> = Array.from({ length: firstDow }, () => null);
+    for (let day = 1; day <= data.days; day += 1) {
+      week.push(day);
+      if (week.length === 7) {
+        weeks.push(week);
+        week = [];
+      }
+    }
+    if (week.length > 0) {
+      while (week.length < 7) week.push(null);
+      weeks.push(week);
+    }
+    return { weeks };
+  }, [data]);
 
   const isDirty = useMemo(() => {
+    if (readOnly) return false;
     if (!data) return false;
     const savedMap = new Map<string, number>();
     data.entries.forEach((entry) => {
@@ -154,8 +241,9 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
       }
     }
     return false;
-  }, [data, rows]);
-  const canSave = isDirty && !saving && !loading;
+  }, [data, readOnly, rows]);
+  const hasUnsaved = isDirty || holidayDirty;
+  const canSave = hasUnsaved && !saving && !loading;
 
   const columns = useMemo(() => {
     if (!data) return [] as Column<Row>[];
@@ -168,26 +256,36 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
       const dow = new Date(Date.UTC(year, monthValue - 1, day)).getUTCDay();
       const weekday = weekdays[dow] ?? "";
       const isHoliday = holidays.has(date);
+      const isIncomplete = readOnly && incompleteSet.has(day);
+      const headerClass = [
+        isHoliday ? "bg-rose-50" : "",
+        isIncomplete ? "bg-rose-100" : ""
+      ]
+        .filter(Boolean)
+        .join(" ");
       return {
         key,
         name: `${day}`,
-        editable: true,
-        width: 80,
-        headerClass: isHoliday ? "bg-rose-50" : undefined,
-        renderEditCell: renderTextEditor,
+        editable: !readOnly,
+        width: 56,
+        headerClass: headerClass || undefined,
+        cellClass: isIncomplete ? "bg-rose-50" : undefined,
+        renderEditCell: readOnly ? undefined : renderTextEditor,
         renderHeaderCell() {
           const total = dayTotals[key] ?? 0;
           const needs = total === 100 ? "" : "*";
           const status = isHoliday ? "休" : "";
           return (
-            <div className="flex flex-col items-center text-xs">
+            <div className="flex flex-col items-center text-[0.6rem]">
               <span className={isHoliday ? "text-rose-600" : ""}>{day}</span>
               <span className={isHoliday ? "text-rose-600" : ""}>{weekday}</span>
-              <span className="text-[10px] text-slate-500">
-                {total === 0 ? "" : total}
-                {status && ` ${status}`}
-                {needs}
-              </span>
+              <div className="flex items-center gap-1 text-[8px]">
+                <span className="text-slate-500">
+                  {total === 0 ? "" : total}
+                  {needs}
+                </span>
+                {status && <span className="text-rose-600">休</span>}
+              </div>
             </div>
           );
         }
@@ -208,24 +306,63 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
           for (let day = 1; day <= data.days; day += 1) {
             total += Number(row[`d${day}`] || 0);
           }
-          return <span className="text-xs">{Math.round(total * 10) / 10}</span>;
+          return <span className="text-[0.6rem]">{Math.round(total * 10) / 10}</span>;
         }
       }
     ];
-  }, [data, dayTotals, holidays]);
+  }, [data, dayTotals, holidays, readOnly]);
 
-  const rowHeight = 40;
+  const baseRowHeight = 40;
+  const extraLineHeight = 16;
   const headerRowHeight = 56;
+  const projectColWidth = 160;
+  const itemColWidth = 180;
+  const typeColWidth = 120;
+  const avgCharWidth = 12;
+
+  const estimateLines = useCallback(
+    (text: string, colWidth: number) => {
+      if (!text) return 1;
+      const charsPerLine = Math.max(1, Math.floor(colWidth / avgCharWidth));
+      return Math.max(1, Math.ceil(text.length / charsPerLine));
+    },
+    [avgCharWidth]
+  );
+
+  const rowHeights = useMemo(() => {
+    const map = new Map<string, number>();
+    rows.forEach((row) => {
+      const projectLines = estimateLines(row.project, projectColWidth);
+      const itemLines = estimateLines(row.item, itemColWidth);
+      const typeLines = estimateLines(String(row.type || ""), typeColWidth);
+      const maxLines = Math.max(1, projectLines, itemLines, typeLines);
+      const height = baseRowHeight + (maxLines - 1) * extraLineHeight;
+      map.set(row.id, height);
+    });
+    return map;
+  }, [
+    baseRowHeight,
+    estimateLines,
+    extraLineHeight,
+    itemColWidth,
+    projectColWidth,
+    rows,
+    typeColWidth
+  ]);
+
+  const getRowHeight = useCallback(
+    (row: Row) => rowHeights.get(row.id) ?? baseRowHeight,
+    [baseRowHeight, rowHeights]
+  );
+
   const gridHeight = useMemo(() => {
     if (!data) return 0;
-    return rows.length * rowHeight + 2;
-  }, [data, rowHeight, rows.length]);
-  const gridWidth = useMemo(() => {
-    return columns.reduce((sum, column) => {
-      if (typeof column.width === "number") return sum + column.width;
-      return sum;
-    }, 0);
-  }, [columns]);
+    let total = 0;
+    rows.forEach((row) => {
+      total += rowHeights.get(row.id) ?? baseRowHeight;
+    });
+    return total + 2;
+  }, [baseRowHeight, data, rowHeights, rows]);
 
   const headerCells = useMemo(() => {
     return columns.map((column) => {
@@ -278,9 +415,28 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
     setScrollLeft(event.currentTarget.scrollLeft);
   }, []);
 
+  const toggleHoliday = useCallback(
+    (date: string) => {
+      if (readOnly) return;
+      setSelectedHolidays((prev) => {
+        if (baseHolidays.has(date)) {
+          return prev;
+        }
+        const next = new Set(prev);
+        if (next.has(date)) {
+          next.delete(date);
+        } else {
+          next.add(date);
+        }
+        return next;
+      });
+    },
+    [baseHolidays, readOnly]
+  );
+
   const updateDraft = useCallback(
     (date: string, entries: Record<string, number>, shouldClear: boolean) => {
-      if (typeof window === "undefined") return;
+      if (readOnly || typeof window === "undefined") return;
       const current = loadDrafts();
       if (shouldClear) {
         delete current[date];
@@ -289,41 +445,13 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
       }
       localStorage.setItem(draftKey, JSON.stringify(current));
     },
-    [draftKey, loadDrafts]
+    [draftKey, loadDrafts, readOnly]
   );
 
-  const saveDay = useCallback(
-    async (
-      date: string,
-      entries: Record<string, number>,
-      options: { skipRefresh?: boolean; silent?: boolean } = {}
-    ) => {
-      const payload = {
-        date,
-        entries: Object.entries(entries).map(([projectItemId, value]) => ({
-          projectItemId,
-          value
-        }))
-      };
-      const res = await fetch("/api/month/day", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) {
-        if (!options.silent) {
-          setMessage("保存に失敗しました。合計が100か確認してください。");
-        }
-        return false;
-      }
-      updateDraft(date, entries, true);
-      if (!options.skipRefresh) {
-        fetchMonth(month);
-      }
-      return true;
-    },
-    [fetchMonth, month, updateDraft]
-  );
+  const clearDrafts = useCallback(() => {
+    if (readOnly || typeof window === "undefined") return;
+    localStorage.removeItem(draftKey);
+  }, [draftKey, readOnly]);
 
   const onRowsChange = useCallback(
     (newRows: Row[], { indexes, column }: { indexes: number[]; column: Column<Row> }) => {
@@ -370,8 +498,9 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
   };
 
   useEffect(() => {
+    if (readOnly) return;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!isDirty) return;
+      if (!hasUnsaved) return;
       event.preventDefault();
       event.returnValue = "保存していない変更があります。";
     };
@@ -379,11 +508,12 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [isDirty]);
+  }, [hasUnsaved, readOnly]);
 
   useEffect(() => {
+    if (readOnly) return;
     const handleClick = (event: MouseEvent) => {
-      if (!isDirty) return;
+      if (!hasUnsaved) return;
       if (event.defaultPrevented) return;
       if (event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -403,16 +533,17 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
     return () => {
       document.removeEventListener("click", handleClick, true);
     };
-  }, [isDirty]);
+  }, [hasUnsaved, readOnly]);
 
   useEffect(() => {
+    if (readOnly) return;
     const allowNavigation = { current: false };
-    if (isDirty) {
+    if (hasUnsaved) {
       window.history.pushState({ wmUnsavedGuard: true }, "", window.location.href);
     }
 
     const handlePopState = () => {
-      if (!isDirty) return;
+      if (!hasUnsaved) return;
       if (allowNavigation.current) {
         allowNavigation.current = false;
         return;
@@ -430,26 +561,29 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
     return () => {
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [isDirty]);
+  }, [hasUnsaved, readOnly]);
 
   const handleSaveAll = useCallback(async () => {
     if (!data) return;
+    if (readOnly) return;
     setSaving(true);
     setMessage(null);
-    const existingDates = new Set(data.entries.map((entry) => entry.date));
     const invalidDays: number[] = [];
-    const tasks: Array<{ date: string; entries: Record<string, number>; total: number }> = [];
+    const bulkEntries: Array<{ date: string; projectItemId: string; value: number }> = [];
 
     for (let day = 1; day <= data.days; day += 1) {
       const key = `d${day}`;
       const date = `${data.month}-${day.toString().padStart(2, "0")}`;
-      const entries: Record<string, number> = {};
       let total = 0;
 
       rows.forEach((row) => {
         const value = Number(row[key] || 0);
         if (value > 0) {
-          entries[row.id] = value;
+          bulkEntries.push({
+            date,
+            projectItemId: row.id,
+            value
+          });
           total += value;
         }
       });
@@ -457,15 +591,7 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
       total = Math.round(total * 10) / 10;
       if (total !== 0 && total !== 100) {
         invalidDays.push(day);
-        continue;
       }
-
-      const hasDraft = Boolean(Object.keys(entries).length > 0);
-      if (total === 0 && !hasDraft && !existingDates.has(date)) {
-        continue;
-      }
-
-      tasks.push({ date, entries, total });
     }
 
     if (invalidDays.length > 0) {
@@ -475,10 +601,41 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
       return;
     }
 
-    let ok = true;
-    for (const task of tasks) {
-      const success = await saveDay(task.date, task.entries, { skipRefresh: true, silent: true });
-      if (!success) {
+    const res = await fetch("/api/month/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        month: data.month,
+        entries: bulkEntries
+      })
+    });
+    let ok = res.ok;
+
+    const initialPersonal = new Set(data.personalHolidays);
+    const toAdd = Array.from(selectedHolidays).filter((date) => !initialPersonal.has(date));
+    const toRemove = Array.from(initialPersonal).filter(
+      (date) => !selectedHolidays.has(date)
+    );
+
+    if (ok && (toAdd.length > 0 || toRemove.length > 0)) {
+      const requests = [
+        ...toAdd.map((date) =>
+          fetch("/api/holidays/personal", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ date })
+          })
+        ),
+        ...toRemove.map((date) =>
+          fetch("/api/holidays/personal", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ date })
+          })
+        )
+      ];
+      const results = await Promise.all(requests);
+      if (!results.every((res) => res.ok)) {
         ok = false;
       }
     }
@@ -486,13 +643,14 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
     if (ok) {
       setMessage("保存しました。");
       setInvalidWarning(false);
+      clearDrafts();
     } else {
       setMessage("保存に失敗しました。");
       setInvalidWarning(false);
     }
     setSaving(false);
     fetchMonth(month);
-  }, [data, fetchMonth, month, rows, saveDay]);
+  }, [clearDrafts, data, fetchMonth, month, readOnly, rows, selectedHolidays]);
 
   const goPrev = () => {
     const [y, m] = month.split("-").map(Number);
@@ -530,17 +688,19 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
           <button className="rounded-md border border-slate-200 px-3 py-1" onClick={goNext}>
             次月
           </button>
-          <button
-            className={`rounded-md px-3 py-1 ${
-              canSave
-                ? "bg-slate-900 text-white"
-                : "cursor-not-allowed bg-slate-200 text-slate-500"
-            }`}
-            onClick={handleSaveAll}
-            disabled={!canSave}
-          >
-            保存
-          </button>
+          {!readOnly && (
+            <button
+              className={`rounded-md px-3 py-1 ${
+                canSave
+                  ? "bg-slate-900 text-white"
+                  : "cursor-not-allowed bg-slate-200 text-slate-500"
+              }`}
+              onClick={handleSaveAll}
+              disabled={!canSave}
+            >
+              保存
+            </button>
+          )}
         </div>
       </div>
 
@@ -556,6 +716,61 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
         </div>
       )}
 
+      {readOnly && data && incompleteDays.length > 0 && (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          未入力扱いの日: {incompleteDays.join(", ")}
+        </div>
+      )}
+
+      {!loading && data && !readOnly && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 text-sm font-semibold text-slate-700">休日設定</div>
+          <div className="grid grid-cols-7 gap-2 text-xs text-slate-500">
+            {["日", "月", "火", "水", "木", "金", "土"].map((label) => (
+              <div key={label} className="text-center font-semibold">
+                {label}
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 space-y-2">
+            {calendar.weeks.map((week, index) => (
+              <div key={index} className="grid grid-cols-7 gap-2">
+                {week.map((day, dayIndex) => {
+                  if (!day) {
+                    return <div key={`blank-${index}-${dayIndex}`} className="h-10" />;
+                  }
+                  const date = `${data.month}-${day.toString().padStart(2, "0")}`;
+                  const isSelected = selectedHolidays.has(date);
+                  const isHoliday = holidays.has(date);
+                  const isFixed = baseHolidays.has(date);
+                  return (
+                    <button
+                      key={date}
+                      type="button"
+                      onClick={() => toggleHoliday(date)}
+                      className={`flex h-10 flex-col items-center justify-center rounded-md border text-xs ${
+                        isHoliday || isSelected
+                          ? "border-rose-300 bg-rose-50 text-rose-700"
+                          : "border-slate-200 text-slate-700"
+                      } ${isFixed ? "cursor-not-allowed opacity-70" : ""}`}
+                      disabled={isFixed}
+                    >
+                      <span>{day}</span>
+                      <span className={isHoliday ? "text-rose-600" : "text-transparent"}>
+                        休
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 text-xs text-slate-500">
+            クリックで休日を切り替えます。保存ボタンで確定します。
+          </div>
+        </div>
+      )}
+
       {loading && <div className="text-sm text-slate-500">読み込み中...</div>}
 
       {!loading && data && data.items.length === 0 && (
@@ -566,9 +781,11 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
 
       {!loading && data && data.items.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 text-xs text-slate-500">
-            {saving ? "保存中..." : ""}
-          </div>
+          {!readOnly && (
+            <div className="mb-2 text-xs text-slate-500">
+              {saving ? "保存中..." : ""}
+            </div>
+          )}
           <div className="sticky top-0 z-10 border-b border-slate-200 bg-white">
             <div className="flex">
               <div className="flex-none" style={{ width: frozenWidth }}>
@@ -611,16 +828,20 @@ export default function TimesheetClient({ initialMonth }: { initialMonth: string
             <DataGrid
               columns={columns}
               rows={rows}
-              onRowsChange={onRowsChange}
+              onRowsChange={readOnly ? undefined : onRowsChange}
               onScroll={handleGridScroll}
-              onCellClick={(args) => {
-                if (args.column.key.startsWith("d")) {
-                  args.selectCell(true);
-                }
-              }}
+              onCellClick={
+                readOnly
+                  ? undefined
+                  : (args) => {
+                      if (args.column.key.startsWith("d")) {
+                        args.selectCell(true);
+                      }
+                    }
+              }
               className="rdg-light timesheet-grid"
               rowClass={rowClass}
-              rowHeight={rowHeight}
+              rowHeight={getRowHeight}
               headerRowHeight={0}
               style={{ height: gridHeight }}
             />

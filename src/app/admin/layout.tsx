@@ -29,12 +29,6 @@ export default async function AdminLayout({
               マスタ設定とエクスポートの管理
             </p>
           </div>
-          <Link
-            className="text-sm text-blue-600 hover:underline"
-            href="/"
-          >
-            ホームへ戻る
-          </Link>
         </header>
         <AdminNav />
         {children}

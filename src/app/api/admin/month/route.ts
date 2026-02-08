@@ -1,4 +1,4 @@
-import { requireSession } from "@/lib/auth-helpers";
+import { requireAdmin } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { daysInMonth, formatDate, parseYearMonth, weekendDates } from "@/lib/date";
 
@@ -22,13 +22,14 @@ async function getHolidayMap() {
 }
 
 export async function GET(request: Request) {
-  const { session, response } = await requireSession();
+  const { response } = await requireAdmin();
   if (response) return response;
 
   const url = new URL(request.url);
   const monthParam = url.searchParams.get("month");
-  if (!monthParam) {
-    return Response.json({ error: "month is required" }, { status: 400 });
+  const userId = url.searchParams.get("userId");
+  if (!monthParam || !userId) {
+    return Response.json({ error: "month and userId are required" }, { status: 400 });
   }
 
   const parsed = parseYearMonth(monthParam);
@@ -42,10 +43,9 @@ export async function GET(request: Request) {
   const end = new Date(Date.UTC(year, month - 1, totalDays + 1));
 
   const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
+    where: { id: userId },
     select: { id: true, unitId: true }
   });
-
   if (!user) {
     return Response.json({ error: "user not found" }, { status: 404 });
   }
