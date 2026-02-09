@@ -35,6 +35,7 @@ type ProjectUnitListProps = {
     addItem: (formData: FormData) => void | Promise<void>;
     updateItem: (formData: FormData) => void | Promise<void>;
     deleteItem: (formData: FormData) => void | Promise<void>;
+    updateItemOrder: (formData: FormData) => void | Promise<void>;
   };
 };
 
@@ -123,7 +124,8 @@ export default function ProjectUnitList({ unitId, units, projects, actions }: Pr
             deleteProject: actions.deleteProject,
             addItem: actions.addItem,
             updateItem: actions.updateItem,
-            deleteItem: actions.deleteItem
+            deleteItem: actions.deleteItem,
+            updateItemOrder: actions.updateItemOrder
           }}
           move={{
             canMoveUp: index > 0,

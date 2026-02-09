@@ -65,8 +65,9 @@ export default function TimesheetClient({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [invalidWarning, setInvalidWarning] = useState(false);
-  const [scrollLeft, setScrollLeft] = useState(0);
   const [selectedHolidays, setSelectedHolidays] = useState<Set<string>>(new Set());
+  const [holidayReady, setHolidayReady] = useState(false);
+  const [hasTouched, setHasTouched] = useState(false);
   const dragFillRef = useRef<{
     rowId: string;
     startDay: number;
@@ -79,7 +80,6 @@ export default function TimesheetClient({
       if (userId) {
         params.set("userId", userId);
       }
-      setScrollLeft(0);
       setLoading(true);
       setMessage(null);
       setInvalidWarning(false);
@@ -105,6 +105,8 @@ export default function TimesheetClient({
   useEffect(() => {
     if (!data) return;
     setSelectedHolidays(new Set(data.personalHolidays));
+    setHolidayReady(true);
+    setHasTouched(false);
   }, [data]);
 
   const draftKey = `${DRAFT_KEY_PREFIX}${month}`;
@@ -177,7 +179,7 @@ export default function TimesheetClient({
   }, [baseHolidays, selectedHolidays]);
 
   const holidayDirty = useMemo(() => {
-    if (!data) return false;
+    if (!data || !holidayReady) return false;
     const current = selectedHolidays;
     const initial = new Set(data.personalHolidays);
     if (current.size !== initial.size) return true;
@@ -185,7 +187,7 @@ export default function TimesheetClient({
       if (!initial.has(date)) return true;
     }
     return false;
-  }, [data, selectedHolidays]);
+  }, [data, holidayReady, selectedHolidays]);
 
   const incompleteDays = useMemo(() => {
     if (!data) return [] as number[];
@@ -249,6 +251,7 @@ export default function TimesheetClient({
     return false;
   }, [data, readOnly, rows]);
   const hasUnsaved = isDirty || holidayDirty;
+  const warnUnsaved = hasUnsaved && hasTouched;
   const canSave = hasUnsaved && !saving && !loading;
 
   const updateDraft = useCallback(
@@ -292,6 +295,7 @@ export default function TimesheetClient({
   const applyDragFill = useCallback(
     (rowId: string, startDay: number, endDay: number, value: string) => {
       if (readOnly) return;
+      setHasTouched(true);
       const minDay = Math.min(startDay, endDay);
       const maxDay = Math.max(startDay, endDay);
       const nextRows = rows.map((row) => {
@@ -345,7 +349,8 @@ export default function TimesheetClient({
       const date = `${data.month}-${day.toString().padStart(2, "0")}`;
       const dow = new Date(Date.UTC(year, monthValue - 1, day)).getUTCDay();
       const weekday = weekdays[dow] ?? "";
-      const isHoliday = holidays.has(date);
+          const isHoliday = holidays.has(date);
+          const isWeekend = dow === 0 || dow === 6;
       const isIncomplete = readOnly && incompleteSet.has(day);
       const headerClass = [
         isHoliday ? "bg-rose-50" : "",
@@ -353,19 +358,22 @@ export default function TimesheetClient({
       ]
         .filter(Boolean)
         .join(" ");
+      const cellClass = [isIncomplete ? "bg-rose-50" : ""].filter(Boolean).join(" ");
       return {
         key,
         name: `${day}`,
         editable: !readOnly,
         width: 56,
         headerClass: headerClass || undefined,
-        cellClass: isIncomplete ? "bg-rose-50" : undefined,
+        cellClass: cellClass || undefined,
         renderEditCell: readOnly ? undefined : renderTextEditor,
         renderCell({ row }) {
           const value = row[key] ?? "";
+          const hasValue = String(value).trim() !== "";
+          const label = `${day}(${weekday})`;
           return (
             <div
-              className="h-full w-full"
+              className="relative h-full w-full"
               onMouseDown={(event) => {
                 if (readOnly) return;
                 if (event.button !== 0) return;
@@ -381,7 +389,16 @@ export default function TimesheetClient({
                 dragFillRef.current = null;
               }}
             >
-              {value}
+              {!hasValue && (
+                <span
+                  className={`pointer-events-none absolute inset-y-0 left-1 flex items-center text-[10px] ${
+                    isHoliday || isWeekend ? "text-rose-300" : "text-slate-400"
+                  }`}
+                >
+                  {label}
+                </span>
+              )}
+              <div className="flex h-full items-center justify-center text-sm">{value}</div>
             </div>
           );
         },
@@ -482,46 +499,15 @@ export default function TimesheetClient({
     rows.forEach((row) => {
       total += rowHeights.get(row.id) ?? baseRowHeight;
     });
-    return total + 2;
-  }, [baseRowHeight, data, rowHeights, rows]);
+    return headerRowHeight + total + 2;
+  }, [baseRowHeight, data, headerRowHeight, rowHeights, rows]);
 
-  const headerCells = useMemo(() => {
-    return columns.map((column) => {
-      const renderHeader =
-        "renderHeaderCell" in column ? column.renderHeaderCell : undefined;
-      const content = renderHeader
-        ? renderHeader({
-            column,
-            sortDirection: undefined,
-            priority: undefined
-          } as unknown as Parameters<NonNullable<typeof renderHeader>>[0])
-        : column.name;
-      const isFrozen = "frozen" in column ? Boolean(column.frozen) : false;
-      return {
-        key: String(column.key),
-        width: typeof column.width === "number" ? column.width : 100,
-        frozen: isFrozen,
-        content
-      };
-    });
+  const gridWidth = useMemo(() => {
+    return columns.reduce((sum, column) => {
+      if (typeof column.width === "number") return sum + column.width;
+      return sum + 100;
+    }, 0);
   }, [columns]);
-
-  const frozenHeaders = useMemo(
-    () => headerCells.filter((cell) => cell.frozen),
-    [headerCells]
-  );
-  const scrollHeaders = useMemo(
-    () => headerCells.filter((cell) => !cell.frozen),
-    [headerCells]
-  );
-  const frozenWidth = useMemo(
-    () => frozenHeaders.reduce((sum, cell) => sum + cell.width, 0),
-    [frozenHeaders]
-  );
-  const scrollWidth = useMemo(
-    () => scrollHeaders.reduce((sum, cell) => sum + cell.width, 0),
-    [scrollHeaders]
-  );
   const rowClass = useCallback(
     (row: Row, rowIdx: number) => {
       if (rowIdx === 0) return undefined;
@@ -532,13 +518,10 @@ export default function TimesheetClient({
     [rows]
   );
 
-  const handleGridScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
-    setScrollLeft(event.currentTarget.scrollLeft);
-  }, []);
-
   const toggleHoliday = useCallback(
     (date: string) => {
       if (readOnly) return;
+      setHasTouched(true);
       setSelectedHolidays((prev) => {
         if (baseHolidays.has(date)) {
           return prev;
@@ -577,6 +560,7 @@ export default function TimesheetClient({
       };
 
       setRows(updatedRows);
+      setHasTouched(true);
 
       const day = Number(colKey.slice(1));
       const date = `${month}-${day.toString().padStart(2, "0")}`;
@@ -607,7 +591,7 @@ export default function TimesheetClient({
   useEffect(() => {
     if (readOnly) return;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!hasUnsaved) return;
+      if (!warnUnsaved) return;
       event.preventDefault();
       event.returnValue = "保存していない変更があります。";
     };
@@ -615,12 +599,12 @@ export default function TimesheetClient({
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [hasUnsaved, readOnly]);
+  }, [readOnly, warnUnsaved]);
 
   useEffect(() => {
     if (readOnly) return;
     const handleClick = (event: MouseEvent) => {
-      if (!hasUnsaved) return;
+      if (!warnUnsaved) return;
       if (event.defaultPrevented) return;
       if (event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -640,17 +624,17 @@ export default function TimesheetClient({
     return () => {
       document.removeEventListener("click", handleClick, true);
     };
-  }, [hasUnsaved, readOnly]);
+  }, [readOnly, warnUnsaved]);
 
   useEffect(() => {
     if (readOnly) return;
     const allowNavigation = { current: false };
-    if (hasUnsaved) {
+    if (warnUnsaved) {
       window.history.pushState({ wmUnsavedGuard: true }, "", window.location.href);
     }
 
     const handlePopState = () => {
-      if (!hasUnsaved) return;
+      if (!warnUnsaved) return;
       if (allowNavigation.current) {
         allowNavigation.current = false;
         return;
@@ -668,7 +652,7 @@ export default function TimesheetClient({
     return () => {
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [hasUnsaved, readOnly]);
+  }, [readOnly, warnUnsaved]);
 
   const handleSaveAll = useCallback(async () => {
     if (!data) return;
@@ -873,7 +857,7 @@ export default function TimesheetClient({
             ))}
           </div>
           <div className="mt-3 text-xs text-slate-500">
-            クリックで休日を切り替えます。保存ボタンで確定します。
+            クリックで休日設定ができます。保存ボタンで確定します。
           </div>
         </div>
       )}
@@ -887,56 +871,17 @@ export default function TimesheetClient({
       )}
 
       {!loading && data && data.items.length > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="relative left-1/2 w-[80vw] max-w-none -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           {!readOnly && (
             <div className="mb-2 text-xs text-slate-500">
               {saving ? "保存中..." : ""}
             </div>
           )}
-          <div className="sticky top-0 z-10 border-b border-slate-200 bg-white">
-            <div className="flex">
-              <div className="flex-none" style={{ width: frozenWidth }}>
-                <div className="flex" style={{ height: headerRowHeight }}>
-                  {frozenHeaders.map((cell) => (
-                    <div
-                      key={cell.key}
-                      className="flex items-center border-r border-slate-200 px-2 text-xs font-semibold text-slate-700"
-                      style={{ width: cell.width }}
-                    >
-                      <div className="w-full text-left">{cell.content}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="relative flex-1 overflow-hidden">
-                <div
-                  className="flex"
-                  style={{
-                    height: headerRowHeight,
-                    width: scrollWidth,
-                    transform: `translateX(-${scrollLeft}px)`
-                  }}
-                >
-                  {scrollHeaders.map((cell) => (
-                    <div
-                      key={cell.key}
-                      className="flex items-center justify-center border-r border-slate-200 px-2 text-xs font-semibold text-slate-700"
-                      style={{ width: cell.width }}
-                    >
-                      <div className="w-full text-center">{cell.content}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="overflow-y-visible">
+          <div className="timesheet-scroll">
             <DataGrid
               columns={columns}
               rows={rows}
               onRowsChange={readOnly ? undefined : onRowsChange}
-              onScroll={handleGridScroll}
               onCellClick={
                 readOnly
                   ? undefined
@@ -949,8 +894,8 @@ export default function TimesheetClient({
               className="rdg-light timesheet-grid"
               rowClass={rowClass}
               rowHeight={getRowHeight}
-              headerRowHeight={0}
-              style={{ height: gridHeight }}
+              headerRowHeight={headerRowHeight}
+              style={{ height: gridHeight, width: gridWidth, minWidth: "100%" }}
             />
           </div>
         </div>

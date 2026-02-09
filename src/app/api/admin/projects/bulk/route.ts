@@ -34,6 +34,11 @@ type OrderUpdatePayload = {
   projectIds: string[];
 };
 
+type ItemOrderUpdatePayload = {
+  projectId: string;
+  itemIds: string[];
+};
+
 type BulkPayload = {
   projectCreates?: ProjectCreatePayload[];
   projectUpdates?: ProjectUpdatePayload[];
@@ -42,6 +47,7 @@ type BulkPayload = {
   itemUpdates?: ItemUpdatePayload[];
   itemDeletes?: string[];
   orderUpdates?: OrderUpdatePayload[];
+  itemOrderUpdates?: ItemOrderUpdatePayload[];
 };
 
 function toStringArray(value: unknown): string[] {
@@ -107,6 +113,15 @@ export async function POST(request: Request) {
           typeof entry.unitId === "string" &&
           Array.isArray(entry.projectIds) &&
           entry.projectIds.length > 0
+      )
+    : [];
+  const itemOrderUpdates = Array.isArray(payload.itemOrderUpdates)
+    ? payload.itemOrderUpdates.filter(
+        (entry) =>
+          entry &&
+          typeof entry.projectId === "string" &&
+          Array.isArray(entry.itemIds) &&
+          entry.itemIds.length > 0
       )
     : [];
 
@@ -267,6 +282,28 @@ export async function POST(request: Request) {
           }))
         });
       }
+    }
+
+    for (const entry of itemOrderUpdates) {
+      if (projectDeleteSet.has(entry.projectId)) continue;
+      const itemIds = entry.itemIds.filter(
+        (id) => typeof id === "string" && !itemDeleteSet.has(id)
+      );
+      if (itemIds.length === 0) continue;
+      const valid = await tx.projectItem.findMany({
+        where: { projectId: entry.projectId, id: { in: itemIds } },
+        select: { id: true }
+      });
+      const validSet = new Set(valid.map((row) => row.id));
+      const ordered = itemIds.filter((id) => validSet.has(id));
+      await Promise.all(
+        ordered.map((itemId, index) =>
+          tx.projectItem.update({
+            where: { id: itemId },
+            data: { sortOrder: index }
+          })
+        )
+      );
     }
 
     for (const entry of orderUpdates) {

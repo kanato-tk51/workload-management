@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import ProjectItemDraftList from "@/components/admin/ProjectItemDraftList";
 import ProjectItemRow from "@/components/admin/ProjectItemRow";
@@ -25,6 +25,7 @@ type ProjectRowProps = {
     addItem: (formData: FormData) => void | Promise<void>;
     updateItem: (formData: FormData) => void | Promise<void>;
     deleteItem: (formData: FormData) => void | Promise<void>;
+    updateItemOrder: (formData: FormData) => void | Promise<void>;
   };
   move?: {
     canMoveUp: boolean;
@@ -36,20 +37,55 @@ type ProjectRowProps = {
 
 export default function ProjectRow({ project, units, actions, move }: ProjectRowProps) {
   const [pendingDelete, setPendingDelete] = useState(false);
+  const [orderedItems, setOrderedItems] = useState(project.items);
+  const [itemOrderDirty, setItemOrderDirty] = useState(false);
+  const initialItemOrderRef = useRef(project.items.map((item) => item.id).join(","));
 
   useEffect(() => {
     window.dispatchEvent(new Event("wm:dirty-change"));
   }, [pendingDelete]);
 
   useEffect(() => {
+    setOrderedItems(project.items);
+    setItemOrderDirty(false);
+    initialItemOrderRef.current = project.items.map((item) => item.id).join(",");
+  }, [project.items]);
+
+  useEffect(() => {
     const handler = () => {
       setPendingDelete(false);
+      setOrderedItems(project.items);
+      setItemOrderDirty(false);
+      initialItemOrderRef.current = project.items.map((item) => item.id).join(",");
     };
     window.addEventListener("wm:bulk-reset", handler);
     return () => {
       window.removeEventListener("wm:bulk-reset", handler);
     };
-  }, []);
+  }, [project.items]);
+
+  useEffect(() => {
+    const orderKey = orderedItems.map((item) => item.id).join(",");
+    const dirty = orderKey !== initialItemOrderRef.current;
+    setItemOrderDirty((prev) => (prev === dirty ? prev : dirty));
+    window.dispatchEvent(new Event("wm:dirty-change"));
+  }, [orderedItems]);
+
+  const moveItemBy = (index: number, delta: number) => {
+    setOrderedItems((prev) => {
+      const nextIndex = index + delta;
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(index, 1);
+      next.splice(nextIndex, 0, moved);
+      return next;
+    });
+  };
+
+  const itemOrderIds = useMemo(
+    () => orderedItems.map((item) => item.id),
+    [orderedItems]
+  );
 
   if (pendingDelete) {
     return (
@@ -149,16 +185,34 @@ export default function ProjectRow({ project, units, actions, move }: ProjectRow
       <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-4">
         <div className="text-base font-semibold text-slate-600">開発項目</div>
         <div className="mt-3 space-y-3">
-          {project.items.length === 0 && (
+          {orderedItems.length === 0 && (
             <div className="text-base text-slate-500">項目がありません。</div>
           )}
-          {project.items.map((item) => (
+          <form
+            action={actions.updateItemOrder}
+            data-kind="item-order-update"
+            data-dirty={itemOrderDirty ? "true" : "false"}
+            onSubmit={(event) => event.preventDefault()}
+            className="hidden"
+          >
+            <input type="hidden" name="projectId" value={project.id} />
+            {itemOrderIds.map((itemId) => (
+              <input key={itemId} type="hidden" name="itemId" value={itemId} />
+            ))}
+          </form>
+          {orderedItems.map((item, index) => (
             <ProjectItemRow
               key={item.id}
               item={item}
               actions={{
                 updateItem: actions.updateItem,
                 deleteItem: actions.deleteItem
+              }}
+              move={{
+                canMoveUp: index > 0,
+                canMoveDown: index < orderedItems.length - 1,
+                onMoveUp: () => moveItemBy(index, -1),
+                onMoveDown: () => moveItemBy(index, 1)
               }}
             />
           ))}

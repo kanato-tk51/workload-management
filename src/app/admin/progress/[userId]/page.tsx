@@ -10,10 +10,10 @@ export default async function AdminUserProgressPage({
   params,
   searchParams
 }: {
-  params?: { userId?: string | string[] };
-  searchParams?: { month?: string | string[] };
+  params: Promise<{ userId?: string | string[] }>;
+  searchParams?: Promise<{ month?: string | string[] }>;
 }) {
-  const resolvedParams = await Promise.resolve(params);
+  const resolvedParams = await params;
   const userIdRaw = resolvedParams?.userId;
   const userId = Array.isArray(userIdRaw) ? userIdRaw[0] : userIdRaw;
 
@@ -30,11 +30,12 @@ export default async function AdminUserProgressPage({
     notFound();
   }
 
-  const monthParamRaw = searchParams?.month;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const monthParamRaw = resolvedSearchParams?.month;
   const monthParam = Array.isArray(monthParamRaw) ? monthParamRaw[0] : monthParamRaw;
   const initialMonth = getYearMonthNow();
   const parsed = monthParam ? parseYearMonth(monthParam) : null;
-  const month = parsed ? monthParam : initialMonth;
+  const month = parsed ? monthParam! : initialMonth;
 
   return (
     <section className="space-y-4">

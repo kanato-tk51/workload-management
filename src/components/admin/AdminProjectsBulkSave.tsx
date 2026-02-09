@@ -72,7 +72,8 @@ export default function AdminProjectsBulkSave() {
         }>,
         itemUpdates: [] as Array<{ id: string; name: string; type: string | null }>,
         itemDeletes: [] as string[],
-        orderUpdates: [] as Array<{ unitId: string; projectIds: string[] }>
+        orderUpdates: [] as Array<{ unitId: string; projectIds: string[] }>,
+        itemOrderUpdates: [] as Array<{ projectId: string; itemIds: string[] }>
       };
 
       forms.forEach((form) => {
@@ -185,6 +186,15 @@ export default function AdminProjectsBulkSave() {
               .filter((value): value is string => typeof value === "string");
             if (typeof unitId !== "string" || projectIds.length === 0) return;
             payload.orderUpdates.push({ unitId, projectIds });
+            break;
+          }
+          case "item-order-update": {
+            const projectId = data.get("projectId");
+            const itemIds = data
+              .getAll("itemId")
+              .filter((value): value is string => typeof value === "string");
+            if (typeof projectId !== "string" || itemIds.length === 0) return;
+            payload.itemOrderUpdates.push({ projectId, itemIds });
             break;
           }
           default:

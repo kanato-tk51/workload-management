@@ -175,6 +175,36 @@ export default async function ProjectsPage() {
     revalidatePath("/admin/projects");
   }
 
+  async function updateItemOrder(formData: FormData) {
+    "use server";
+    await requireAdminAction();
+    const projectId = toRequiredString(formData.get("projectId"));
+    if (!projectId) return;
+    const itemIds = formData
+      .getAll("itemId")
+      .filter((value): value is string => typeof value === "string");
+    if (itemIds.length === 0) return;
+
+    const validItems = await prisma.projectItem.findMany({
+      where: { projectId, id: { in: itemIds } },
+      select: { id: true }
+    });
+    const validSet = new Set(validItems.map((entry) => entry.id));
+    const ordered = itemIds.filter((id) => validSet.has(id));
+    if (ordered.length === 0) return;
+
+    await prisma.$transaction(
+      ordered.map((itemId, index) =>
+        prisma.projectItem.update({
+          where: { id: itemId },
+          data: { sortOrder: index }
+        })
+      )
+    );
+
+    revalidatePath("/admin/projects");
+  }
+
   async function addItem(formData: FormData) {
     "use server";
     await requireAdminAction();
@@ -288,6 +318,7 @@ export default async function ProjectsPage() {
                     updateProjectOrder,
                     updateProject,
                     deleteProject,
+                    updateItemOrder,
                     addItem,
                     updateItem,
                     deleteItem

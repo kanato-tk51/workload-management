@@ -45,16 +45,20 @@ body {
   color: #111827;
 }
 
+.timesheet-scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
 .timesheet-grid {
-  overflow-x: auto !important;
-  overflow-y: visible !important;
+  overflow: visible !important;
   contain: none !important;
   --rdg-border-color: #e2e8f0;
   --rdg-border-width: 1px;
   font-size: 0.8rem;
 }
 
-.timesheet-header-row > * {
+.timesheet-grid .rdg-header-row {
   position: sticky;
   top: 0;
   z-index: 4;

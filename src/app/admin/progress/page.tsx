@@ -34,14 +34,14 @@ type UserStatus = {
 export default async function AdminProgressPage({
   searchParams
 }: {
-  searchParams?: { month?: string | string[] };
+  searchParams?: Promise<{ month?: string | string[] }>;
 }) {
-  const resolvedParams = await Promise.resolve(searchParams);
+  const resolvedParams = searchParams ? await searchParams : undefined;
   const monthParamRaw = resolvedParams?.month;
   const monthParam = Array.isArray(monthParamRaw) ? monthParamRaw[0] : monthParamRaw;
   const initialMonth = getYearMonthNow();
   const parsed = monthParam ? parseYearMonth(monthParam) : null;
-  const month = parsed ? monthParam : initialMonth;
+  const month = parsed ? monthParam! : initialMonth;
   const { year, month: monthValue } = parsed ?? parseYearMonth(initialMonth)!;
   const totalDays = daysInMonth(year, monthValue);
   const start = new Date(Date.UTC(year, monthValue - 1, 1));

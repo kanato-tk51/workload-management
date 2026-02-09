@@ -14,9 +14,15 @@ type ProjectItemRowProps = {
     updateItem: (formData: FormData) => void | Promise<void>;
     deleteItem: (formData: FormData) => void | Promise<void>;
   };
+  move?: {
+    canMoveUp: boolean;
+    canMoveDown: boolean;
+    onMoveUp: () => void;
+    onMoveDown: () => void;
+  };
 };
 
-export default function ProjectItemRow({ item, actions }: ProjectItemRowProps) {
+export default function ProjectItemRow({ item, actions, move }: ProjectItemRowProps) {
   const [pendingDelete, setPendingDelete] = useState(false);
 
   useEffect(() => {
@@ -75,6 +81,37 @@ export default function ProjectItemRow({ item, actions }: ProjectItemRowProps) {
           削除
         </button>
       </div>
+      {move && (
+        <div className="ml-auto flex flex-col gap-1">
+          <span className="text-base text-transparent">placeholder</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={move.onMoveUp}
+              disabled={!move.canMoveUp}
+              className={`rounded-md px-3 py-2 text-base font-medium ${
+                !move.canMoveUp
+                  ? "cursor-not-allowed bg-slate-200 text-slate-400"
+                  : "border border-slate-300 bg-white text-slate-700"
+              }`}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              onClick={move.onMoveDown}
+              disabled={!move.canMoveDown}
+              className={`rounded-md px-3 py-2 text-base font-medium ${
+                !move.canMoveDown
+                  ? "cursor-not-allowed bg-slate-200 text-slate-400"
+                  : "border border-slate-300 bg-white text-slate-700"
+              }`}
+            >
+              ↓
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
